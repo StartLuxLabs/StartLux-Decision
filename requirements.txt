@@ -1,14 +1,15 @@
 # tested with torch 2.11, transformers 5.8.1, flash-linear-attention 0.5.2, causal-conv1d 1.7.0, peft 0.20 on H200
 torch>=2.8
-transformers>=5.8
+# model.py uses the 5.8 linear-attention cache and fast-kernel interfaces
+transformers==5.8.1
 huggingface_hub>=0.34
 safetensors>=0.4
 # image input: the checkpoints' image processor uses torchvision; install the build that matches your torch
 pillow>=10
 torchvision>=0.23
-# required on CUDA: without them transformers silently runs a plain torch path (>10x slower)
+# required on NVIDIA CUDA and AMD ROCm: without them transformers silently runs a plain torch path (>10x slower)
 flash-linear-attention>=0.5.2; sys_platform == "linux"
-causal-conv1d>=1.7; sys_platform == "linux"          # CUDA build; if pip compiles it, add --no-build-isolation
+causal-conv1d>=1.7; sys_platform == "linux"          # CUDA/HIP build; if pip compiles it, add --no-build-isolation
 # Apple Silicon: the forward pass runs in MLX instead (startlux_decision/mlx_model.py)
 mlx-lm>=0.31.3; sys_platform == "darwin" and platform_machine == "arm64"
 # fine-tuning

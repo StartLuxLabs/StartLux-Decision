@@ -4,7 +4,7 @@ Each question is rendered as one prompt (startlux_decision/jevfmt.py), the model
 answer is read from the next-token logits of the option letters at the last prompt position, divided by the
 temperature of the question type and normalised over the listed options.  Nothing is generated.
 
-All questions of one request run in one forward pass, one row per question.  On CUDA the pass is a recorded graph:
+All questions of one request run in one forward pass, one row per question.  On CUDA or ROCm the pass is a recorded graph:
 one per padded input length (128 ... 4096 tokens) for a single question, and one per (question count, length) for two
 to four questions of up to 1024 tokens each.  Replaying a graph removes the per-layer launch overhead (the approach of
 the JevK5 runtime, Apache-2.0).  Inputs are right-padded; every layer is causal and rows never mix, so padding after the
@@ -44,7 +44,8 @@ import torch.nn.functional as F
 
 from . import jevfmt as J
 
-__all__ = ["StartLuxDecision", "load_model", "load_image", "fast_kernels_active", "choice_confidence", "score_confidence"]
+__all__ = ["StartLuxDecision", "load_model", "load_image", "fast_kernels_active", "accelerator_name",
+           "fast_kernel_install_hint", "choice_confidence", "score_confidence"]
 
 GRAPH_LENGTHS = (128, 192, 256, 320, 384, 512, 640, 768, 1024, 1536, 2048, 3072, 4096)
 GRAPH_ROWS = (1, 2, 3, 4)          # questions per request replayed as one graph
@@ -241,6 +242,20 @@ def _shared_kv_layer():
     return SharedKV
 
 
+def accelerator_name(device=None):
+    """The runtime behind a torch device.  PyTorch uses the `cuda` device type for both CUDA and ROCm."""
+    device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    if device.type == "cuda" and torch.version.hip:
+        return "rocm"
+    return device.type
+
+
+def fast_kernel_install_hint(device=None):
+    """Install command for the fused Qwen3.5 kernels on this torch runtime."""
+    isolation = "--no-build-isolation " if accelerator_name(device) == "rocm" else ""
+    return f"pip install {isolation}flash-linear-attention causal-conv1d"
+
+
 def fast_kernels_active(path):
     """True when transformers will use the fla / causal-conv1d kernels for the linear-attention layers of the model
     in `path`."""
@@ -258,7 +273,7 @@ def load_model(path, device):
     """The checkpoint's own transformers class in bf16 on `device`, and its text decoder (the stack without the
     output head; checkpoints that also carry other towers keep the text decoder under .language_model).  The experts
     of a mixture-of-experts checkpoint run as grouped matrix multiplications: one kernel per projection for all
-    experts and no host synchronisation, so the CUDA graphs can record them."""
+    experts and no host synchronisation, so the CUDA/HIP graphs can record them."""
     import transformers
 
     config = transformers.AutoConfig.from_pretrained(path)
@@ -289,11 +304,12 @@ class StartLuxDecision:
         wide = cfg.get("wide_choice", {})
         self.group, self.keep, self.residual = wide.get("group", 25), wide.get("keep", 3), wide.get("residual", 1e-3)
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
+        self.accelerator = accelerator_name(self.device)
         self.fast_kernels = fast_kernels_active(path)
         if self.device.type == "cuda" and not self.fast_kernels:
             msg = ("flash-linear-attention and causal-conv1d are not active, so transformers would run the plain torch "
-                   "path of the linear-attention layers (>10x slower). pip install flash-linear-attention causal-conv1d, "
-                   "or set STARTLUX_ALLOW_SLOW=1 to run anyway.")
+                   f"path of the linear-attention layers (>10x slower) on {self.accelerator}. "
+                   f"{fast_kernel_install_hint(self.device)}, or set STARTLUX_ALLOW_SLOW=1 to run anyway.")
             if os.environ.get("STARTLUX_ALLOW_SLOW") != "1":
                 raise RuntimeError(msg)
             warnings.warn(msg)
@@ -325,7 +341,7 @@ class StartLuxDecision:
         if graphs and self.device.type == "cuda" and os.environ.get("STARTLUX_GRAPHS", "1") != "0":
             self._capture()
 
-    # ---- CUDA-graph path (the questions of one request as rows, right-padded, no attention mask)
+    # ---- CUDA/HIP graph path (the questions of one request as rows, right-padded, no attention mask)
     def _slot_logits(self, ids, last):
         with torch.autocast(self.device.type, dtype=torch.bfloat16):
             hidden = self.body(input_ids=ids, use_cache=False, return_dict=True).last_hidden_state

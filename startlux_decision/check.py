@@ -3,14 +3,15 @@
     python -m startlux_decision.check /path/to/StartLux-Decision-4B
 
 Exits with status 1 when flash-linear-attention or causal-conv1d is missing or not importable; transformers would then
-fall back to a plain torch path that is more than ten times slower.  On Apple Silicon with mlx-lm installed the server
-runs the model with MLX instead, which needs neither.  Also says whether image input will work (torch backend only).
+fall back to a plain torch path that is more than ten times slower.  Reports whether torch uses CUDA or ROCm.  On Apple
+Silicon with mlx-lm installed the server runs the model with MLX instead, which needs neither.  Also says whether image
+input will work (torch backend only).
 """
 import importlib.util
 import os
 import sys
 
-from .model import fast_kernels_active
+from .model import accelerator_name, fast_kernel_install_hint, fast_kernels_active
 
 
 def images_ready(path):
@@ -28,8 +29,15 @@ def main():
     if mlx_available():                              # Apple Silicon: mlx-lm has its own kernels for these layers
         print("Apple Silicon: the server runs the model with MLX (text only); nothing else to install")
         sys.exit(0)
+    import torch
+    accelerator = accelerator_name()
+    detail = ""
+    if accelerator in ("cuda", "rocm"):
+        runtime = torch.version.hip if accelerator == "rocm" else torch.version.cuda
+        detail = f" ({torch.cuda.get_device_name()}, runtime {runtime})"
+    print(f"accelerator: {accelerator}{detail}")
     ok = fast_kernels_active(sys.argv[1])
-    print("fast kernels: " + ("active" if ok else "NOT active, pip install flash-linear-attention causal-conv1d"))
+    print("fast kernels: " + ("active" if ok else f"NOT active, {fast_kernel_install_hint()}"))
     print("images: " + images_ready(sys.argv[1]))
     sys.exit(0 if ok else 1)
 

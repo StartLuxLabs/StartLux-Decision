@@ -48,7 +48,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True)
     ap.add_argument("--dev", required=True)
-    ap.add_argument("--device", help="cuda or cpu (default: cuda when available)")
+    ap.add_argument("--device", help="cuda (NVIDIA CUDA or AMD ROCm) or cpu (default: cuda when available)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     m = StartLuxDecision(a.model, device=a.device)

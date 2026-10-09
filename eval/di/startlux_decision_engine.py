@@ -3,7 +3,7 @@
     python -m decision_index run --engine eval.di.startlux_decision_engine:StartLuxDecisionEngine --option model=/path/to/StartLux-Decision-4B \
         --out runs/StartLux-Decision-4B
 
-Run it from the repository root with the kit installed.  One request at a time.  CUDA graphs speed up single short
+Run it from the repository root with the kit installed.  One request at a time.  GPU graphs speed up single short
 requests, but on the Decision Index mix, where many requests carry several longer questions, --option graphs=false is
 faster.  For a full run use eval/di/batched.py instead, which writes the same result records and is faster again.
 """
@@ -31,7 +31,8 @@ class StartLuxDecisionEngine(Engine):
 
     def runtime(self):
         return {"torch": torch.__version__, "device": torch.cuda.get_device_name() if torch.cuda.is_available() else "cpu",
-                "fast_kernels": self.m.fast_kernels, "cuda_graphs": len(self.m.graphs)}
+                "accelerator": self.m.accelerator, "fast_kernels": self.m.fast_kernels,
+                "graphs": len(self.m.graphs), "cuda_graphs": len(self.m.graphs)}
 
     def synchronize(self):
         if torch.cuda.is_available():
