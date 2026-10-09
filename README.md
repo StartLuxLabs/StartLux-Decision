@@ -314,6 +314,9 @@ The weights are on Hugging Face, as the original checkpoints for this package an
 
 </div>
 
+On AMD GPUs, follow [AMD ROCm](docs/inference.md#amd-rocm) to install ROCm PyTorch and build the fused kernels before
+continuing. PyTorch continues to use the `cuda` device name on ROCm.
+
 ```bash
 hf download startlux-models/StartLux-Decision-4B --local-dir StartLux-Decision-4B
 # or, from ModelScope: modelscope download StartLuxAI/StartLux-Decision-4B --local-dir StartLux-Decision-4B
@@ -357,7 +360,7 @@ Index runner. [docs/finetuning.md](docs/finetuning.md) shows how to adapt a mode
 ## Layout
 
 ```
-startlux_decision/       inference: prompt rendering, letter readout, CUDA graphs, long inputs, images, MLX for Apple Silicon, HTTP servers (also for GGUF), kernel check
+startlux_decision/       inference: prompt rendering, letter readout, GPU graphs, long inputs, images, MLX for Apple Silicon, HTTP servers (also for GGUF), kernel check
 demos/          the computer-use harness and its two mock sites, and the chess match tools
 eval/           evaluation: Intern-Decision suites and JevBench public tiers, Typed Decisions, Decision Index, latency
 finetune/       LoRA fine-tuning on your own data and temperature calibration

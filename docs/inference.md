@@ -5,6 +5,7 @@
 ```bash
 hf download startlux-models/StartLux-Decision-4B --local-dir StartLux-Decision-4B      # or any size, see below
 # or, from ModelScope: modelscope download StartLuxAI/StartLux-Decision-4B --local-dir StartLux-Decision-4B
+# AMD ROCm: follow the dedicated section below instead of this generic install command.
 pip install -r requirements.txt
 ```
 
@@ -14,9 +15,9 @@ local folder called `StartLux-Decision-4B`.
 
 `requirements.txt` includes `flash-linear-attention` and `causal-conv1d`. They matter more than anything else on this
 page. The models use linear-attention layers, and without these two packages transformers quietly falls back to a
-plain PyTorch implementation that is more than ten times slower. Nothing errors; it is just slow. `causal-conv1d` builds
-against your CUDA and PyTorch, and if pip ends up compiling it, add `--no-build-isolation`. On Apple Silicon both are
-skipped and mlx-lm is installed instead; see [Apple Silicon (MLX)](#apple-silicon-mlx).
+plain PyTorch implementation that is more than ten times slower. Nothing errors; it is just slow. `causal-conv1d`
+builds against your CUDA or ROCm runtime and PyTorch, and if pip ends up compiling it, add `--no-build-isolation`. On
+Apple Silicon both are skipped and mlx-lm is installed instead; see [Apple Silicon (MLX)](#apple-silicon-mlx).
 
 Check that the fast path is really on:
 
@@ -24,9 +25,64 @@ Check that the fast path is really on:
 python -m startlux_decision.check StartLux-Decision-4B        # fast kernels: active
 ```
 
-On a machine with a GPU it must say `active`. On CUDA, `StartLuxDecision(...)` refuses to start when the kernels are not
-active; set `STARTLUX_ALLOW_SLOW=1` if you really want to run without them. On a CPU-only machine the check is skipped and
-everything runs, slowly.
+On a machine with a GPU it must say `active`. On NVIDIA CUDA or AMD ROCm, `StartLuxDecision(...)` refuses to start when
+the kernels are not active; set `STARTLUX_ALLOW_SLOW=1` if you really want to run without them. On a CPU-only machine
+the check is skipped and everything runs, slowly.
+
+### AMD ROCm
+
+The torch backend supports AMD GPUs through ROCm. PyTorch deliberately uses the `cuda` device name and
+`torch.cuda` API on ROCm too, so keep `--device cuda`; do not pass `rocm`.
+
+Install a supported ROCm PyTorch build first, following AMD's
+[current PyTorch installation guide](https://rocm.docs.amd.com/projects/ai-ecosystem/en/latest/frameworks/pytorch/install.html).
+Then verify the runtime and a real operation before installing the fused kernels:
+
+```bash
+python - <<'PY'
+import torch
+assert torch.version.hip, f"expected ROCm torch, got {torch.__version__}"
+assert torch.cuda.is_available() and torch.cuda.device_count() == 1
+print(torch.__version__, "HIP", torch.version.hip, torch.cuda.get_device_name(), torch.cuda.get_arch_list())
+x = torch.randn((512, 512), device="cuda", dtype=torch.bfloat16)
+y = x @ x
+torch.cuda.synchronize()
+assert torch.isfinite(y).all()
+PY
+```
+
+Official wheel-packaged `rocm/pytorch` images keep the development SDK inside site-packages. Set its path before building
+the extension; a native Core SDK install normally discovers `/opt/rocm` and does not need this override.
+
+```bash
+export ROCM_HOME="$(python -c 'from importlib.metadata import distribution; print(distribution("rocm-sdk-devel").locate_file("_rocm_sdk_devel"))')"
+```
+
+Then install the remaining requirements:
+
+```bash
+# causal-conv1d builds a HIP extension against the installed torch when a matching wheel is unavailable.
+python -m pip install --no-build-isolation -r requirements.txt
+python -m startlux_decision.check StartLux-Decision-4B
+```
+
+The check must report `accelerator: rocm` and `fast kernels: active`. The ROCm 10.1 / PyTorch 2.12 official image is a
+known working combination. The requirements retain Transformers 5.8.1 because the inference code uses that release's
+linear-attention cache and fast-kernel interfaces. `causal-conv1d` 1.7.0 does not currently build against PyTorch 2.14,
+whose extensions require C++20, so use a compatible PyTorch release until that package updates. Set `HIP_ARCHITECTURES`
+to the target gfx name when building for deployment on a different GPU.
+
+For a multi-GPU host, expose one device to each server with `ROCR_VISIBLE_DEVICES`. First use can spend minutes compiling
+and autotuning Triton kernels; later starts reuse its cache.
+
+```bash
+ROCR_VISIBLE_DEVICES=0 python -m startlux_decision.server --model StartLux-Decision-4B --port 8090
+```
+
+PyTorch implements HIP graphs through the same `torch.cuda.CUDAGraph` API used here. Set `STARTLUX_GRAPHS=0` to separate
+graph capture from fused-kernel problems while diagnosing a new GPU. An `invalid device function` error means the
+installed extension lacks code for that gfx target; rebuild the extension for the reported architecture rather than
+enabling `STARTLUX_ALLOW_SLOW`.
 
 ## Serving
 
@@ -154,7 +210,8 @@ Three things, in order of how much they matter.
 1. The fast kernels above. Without them everything else is moot.
 2. No generation. One forward pass per request, each question one row of the batch, and only 26 rows of the output
    matrix are ever multiplied.
-3. CUDA graphs. At start-up the model records graphs in a single shared memory pool: one per padded input length
+3. GPU graphs. At start-up the model records graphs through `torch.cuda.CUDAGraph` on CUDA or ROCm, in a single shared
+   memory pool: one per padded input length
    (128, 192, 256 ... 4096 tokens) for a single question, and one per question count and length for requests with two
    to four questions of up to 1024 tokens (40 graphs in all). The experts of StartLux-Decision-35B-A3B run as grouped
    matrix multiplications, with no synchronisation with the host, so they are recorded as well. A short request is right-padded to the next length and

@@ -6,11 +6,11 @@ POST /v1/systemone  {"state": ..., "questions": {key: {"type", "instructions", "
   -> {"answers": {key: answer}, "usage": {"input_tokens", "output_tokens"}, "model": ...}
      "images" is optional: base64 strings or data URIs, part of the evidence ("<image>" in a string state marks where
      each goes, otherwise they come first); the torch backend only.
-GET  /health        {"status", "model", "backend", "fast_kernels", "cuda_graphs", "images", "max_length"}
+GET  /health        {"status", "model", "backend", "accelerator", "fast_kernels", "graphs", "cuda_graphs", ...}
 GET  /v1/models     {"models": [{"name", "description", "release_date"}]}
 Every response carries an x-typesafe-request-id header; errors are {"error": message, "detail": [{"loc", "msg", "type"}]}
 (400 for a malformed body, 422 for a request the model cannot answer).  confidence follows TypeSafe's definitions.
-Requests are served one at a time on one GPU.  At start-up one request runs through both the CUDA-graph path and the
+Requests are served one at a time on one GPU.  At start-up one request runs through both the GPU-graph path and the
 eager path; if their probabilities differ by more than 0.02 the graphs are dropped.
 
 --backend auto (the default) runs the model with MLX on Apple Silicon when mlx-lm is installed (mlx_model.py) and with
@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--model", required=True, help="local StartLux-Decision directory")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8090)
-    ap.add_argument("--device", help="cuda or cpu for the torch backend (default: cuda when available)")
+    ap.add_argument("--device", help="cuda (NVIDIA CUDA or AMD ROCm) or cpu for torch (default: cuda when available)")
     ap.add_argument("--backend", choices=("auto", "torch", "mlx"), default="auto",
                     help="auto: MLX on Apple Silicon when mlx-lm is installed, else torch")
     ap.add_argument("--int8", action="store_true", help="MLX on M5 and later: int8 matmuls on the neural accelerators")
@@ -60,6 +60,7 @@ def main():
         from .model import StartLuxDecision
         engine = StartLuxDecision(a.model, device=a.device, max_length=a.max_length, images=not a.no_images,
                                   max_pixels=a.max_pixels)
+    accelerator = "metal" if backend == "mlx" else engine.accelerator
     demo_state = {"ticket": "I was charged twice for order #4411 and the app still shows it as unpaid."}
     demo_questions = {
         "team": {"type": "choice", "instructions": "Which team should handle this ticket?",
@@ -99,8 +100,10 @@ def main():
         def do_GET(self):
             path = self.path.rstrip("/")
             if path in ("/health", "/v1/health"):
-                return self._send(200, {"status": "ok", "model": name, "backend": backend, "fast_kernels": engine.fast_kernels,
-                                        "cuda_graphs": len(engine.graphs), "images": getattr(engine, "vision", None) is not None,
+                return self._send(200, {"status": "ok", "model": name, "backend": backend, "accelerator": accelerator,
+                                        "fast_kernels": engine.fast_kernels, "graphs": len(engine.graphs),
+                                        "cuda_graphs": len(engine.graphs),
+                                        "images": getattr(engine, "vision", None) is not None,
                                         "max_length": getattr(engine, "max_length", None)})
             if path == "/v1/models":
                 return self._send(200, {"models": [{"name": name, "description": "StartLux-Decision typed decision model",
@@ -139,7 +142,7 @@ def main():
             pass
 
     detail = (f"MLX, int8 projections: {engine.int8}" if backend == "mlx" else
-              f"fast kernels: {engine.fast_kernels}, cuda graphs: {len(engine.graphs)}, "
+              f"accelerator: {accelerator}, fast kernels: {engine.fast_kernels}, graphs: {len(engine.graphs)}, "
               f"images: {'yes' if engine.vision is not None else 'no, ' + engine.vision_note}, "
               f"max length: {engine.max_length}")
     print(f"{name} serving on http://{a.host}:{a.port}/v1/systemone ({detail})", flush=True)
