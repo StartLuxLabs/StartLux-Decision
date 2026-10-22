@@ -1,4 +1,5 @@
-"""The pipeline on the fake engine: details and timings, Instant models, knock-out lists, concurrency, errors."""
+"""The pipeline on the fake engine: details and timings, the first read's prompt, Instant models, knock-out lists,
+concurrency, errors."""
 from __future__ import annotations
 
 import asyncio
@@ -9,10 +10,11 @@ import unittest
 from dataclasses import replace
 
 from startlux_decide.backends.base import BackendRequestError
-from startlux_decide.backends.fake import FakeBackend
+from startlux_decide.backends.fake import FakeBackend, FakeTokenizer
 from startlux_decide.controls import Controls, RequestError
 from startlux_decide.modelcfg import AutoThink, ModelFolder
-from startlux_decide.pipeline import CUT, Decider, default_controls
+from startlux_decide.pipeline import CUT, SHARE_MIN, Decider, default_controls
+from startlux_decide.prompt import THINK_OFF_SUFFIX
 
 AUTO = ModelFolder(path="(test)", prompt_attention="causal", temperature_by_type={"choice": 1.0, "noul": 1.2},
                    letter_token_ids=tuple(range(65, 91)), wide_group=25, wide_keep=3, wide_residual=0.001,
@@ -98,6 +100,64 @@ class DetailsTest(unittest.TestCase):
         d = Decider(AUTO, FakeBackend(script=closing), context_length=300)
         out = run(d.decide("x" * 200, {"q": QUESTIONS["urgent"]}, Controls(think_mode="always", details=True)))
         self.assertFalse(out.answers["q"]["details"]["thought"]["used"])
+
+
+NOTE = "Reasoning effort is set to high.\n\n"          # what the release template starts a thinking system line with
+
+
+class FirstReadTest(unittest.TestCase):
+    """first_read "thinking": the one-pass prompts of a request that may think are thinking prompts with an empty
+    thought, so each thought continues its question's read-out, and a long state is read once with the thoughts."""
+
+    def calls(self, ctl, state="charged twice", questions=QUESTIONS, **engine):
+        backend = FakeBackend(tokenizer=FakeTokenizer(think_note=NOTE), script=closing, **engine)
+        run(Decider(AUTO, backend).decide(state, questions, ctl))
+        firsts = [c[1] for c in backend.calls if c[0] == "readout" and "Billing" not in c[1]]   # not after a thought
+        thoughts = [c[1] for c in backend.calls if c[0] == "generate"]
+        return firsts, thoughts, [c[1] for c in backend.calls if c[0] == "prefill"]
+
+    def test_thoughts_continue_the_read_outs(self):
+        firsts, thoughts, _ = self.calls(Controls(think_mode="always", first_read="thinking"))
+        self.assertEqual((len(firsts), len(thoughts)), (3, 3))
+        for read in firsts:
+            self.assertTrue(read.endswith(THINK_OFF_SUFFIX))
+            self.assertEqual(sum(t.startswith(read[:-len("\n</think>\n\n")]) for t in thoughts), 1)
+
+    def test_plain_and_never_read_the_trained_prompt(self):
+        firsts, thoughts, _ = self.calls(Controls(think_mode="always"))
+        self.assertEqual((len(firsts), len(thoughts)), (3, 3))
+        self.assertTrue(all(NOTE not in r for r in firsts) and all(NOTE in t for t in thoughts))
+        firsts, thoughts, _ = self.calls(Controls(think_mode="never", first_read="thinking"))
+        self.assertEqual((len(firsts), len(thoughts)), (3, 0))
+        self.assertTrue(all(NOTE not in r and r.endswith(THINK_OFF_SUFFIX) for r in firsts))
+
+    def test_a_long_state_is_read_once_with_its_thoughts(self):
+        state = "x" * SHARE_MIN                         # one fake token per character
+        firsts, thoughts, prefills = self.calls(Controls(think_mode="always", first_read="thinking"), state,
+                                                caches_prefixes=True)
+        self.assertEqual(len(prefills), 1)
+        self.assertIn(state, prefills[0])
+        self.assertTrue(all(p.startswith(prefills[0]) for p in firsts + thoughts))
+        _, thoughts, prefills = self.calls(Controls(think_mode="always"), state, caches_prefixes=True)
+        self.assertEqual(len(prefills), 1)
+        self.assertFalse(any(t.startswith(prefills[0][:len("<|im_start|>system\n") + 1]) for t in thoughts))
+
+    def test_knock_out_rounds_take_the_same_form(self):
+        crit = {f"opt{i}": f"option number {i}" for i in range(60)}
+        wide = {"q": {"type": "choice", "instructions": "Which?", "criteria": crit}}
+        firsts, thoughts, _ = self.calls(Controls(think_mode="always", first_read="thinking"), questions=wide)
+        self.assertEqual((len(firsts), len(thoughts)), (4, 1))         # three groups of 20, then the final round
+        self.assertTrue(all(NOTE in r and r.endswith(THINK_OFF_SUFFIX) for r in firsts))
+        self.assertTrue(thoughts[0].startswith(firsts[-1][:-len("\n</think>\n\n")]))
+
+    def test_a_template_without_the_form_is_refused_at_startup(self):
+        class Unopened(FakeTokenizer):          # ends a thinking prompt with "<think>" and no newline
+            def apply_chat_template(self, *args, enable_thinking=True, **kwargs):
+                text = super().apply_chat_template(*args, enable_thinking=enable_thinking, **kwargs)
+                return text if enable_thinking is False else text.removesuffix("\n")
+        with self.assertRaisesRegex(ValueError, "opened think block"):
+            Decider(AUTO, FakeBackend(tokenizer=Unopened()))
+        Decider(INSTANT, FakeBackend(tokenizer=Unopened()))     # an Instant folder renders no thinking prompt
 
 
 class InstantTest(unittest.TestCase):

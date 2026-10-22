@@ -219,7 +219,7 @@ thinking off). Deliberate differences, none of which changes a probability of an
 | choice with one option | refused (422) | answered with probability 1 |
 | `mix` 0 | meant "the read-out after the thought only" | means "the first read-out only" (the formula) |
 | `usage.input_tokens` of knocked-out lists | the final round's prompt | every round's prompts |
-| request controls | `think_mode` only, unknown values ignored | `think_mode`, `gate`, `think_budget`, `mix`, `thought_generation`, details; bad values give 422 |
+| request controls | `think_mode` only, unknown values ignored | `think_mode`, `gate`, `think_budget`, `mix`, `thought_generation`, `first_read`, details; bad values give 422 |
 | thoughts on vLLM 0.31 | (not run) | one streamed request (the chunked path on request); the golden test runs the chunked path, and `tests/test_stream.py` shows that with one token per stream event the streamed path gives the same thoughts and probabilities as the chunked one on the fake vLLM |
 | malformed body, empty `questions` | 400 | 422, FastAPI-style `detail` |
 | `cache_mode`, `--rep-pen`, `--stop-loops`, `--loop-version` 1 and 2 | test switches | not carried over (the release used none of them) |

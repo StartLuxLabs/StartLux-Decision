@@ -135,12 +135,15 @@ def messages(row: Row) -> list[dict]:
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}]
 
 
+_PROBE = {"type": "noul", "state": "s", "instructions": "q",
+          "options": [{"id": "true", "criterion": None}, {"id": "false", "criterion": None}]}
+
+
 def check_tokenizer(tokenizer: Any) -> list[int]:
     """Check that the tokenizer renders the thinking-off prompt and reads every letter as one token right after it.
     Returns the 26 letter token ids, A to Z."""
-    probe = messages({"type": "noul", "state": "s", "instructions": "q",
-                      "options": [{"id": "true", "criterion": None}, {"id": "false", "criterion": None}]})
-    text = tokenizer.apply_chat_template(probe, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+    text = tokenizer.apply_chat_template(messages(_PROBE), tokenize=False, add_generation_prompt=True,
+                                         enable_thinking=False)
     if not text.endswith(THINK_OFF_SUFFIX):
         raise ValueError("the tokenizer's chat template lacks the thinking-off assistant prefix "
                          f"{THINK_OFF_SUFFIX!r}; this is not a StartLux-Decision tokenizer")
@@ -232,6 +235,26 @@ def think_prompt(tokenizer: Any, msgs: list[dict]) -> str:
     if not text.rstrip().endswith(THINK_OPEN):
         text += THINK_OPEN + "\n"
     return text
+
+
+def empty_thought_prompt(tokenizer: Any, msgs: list[dict]) -> str:
+    """A one-pass prompt that a thought continues: the thinking prompt with an empty thought, ending with the empty
+    think block like plain_prompt. The release chat template opens the system message of a thinking prompt with a
+    reasoning-effort line that plain_prompt lacks, so a thought shares only a few characters with plain_prompt and an
+    engine reads its whole state again; it shares this prompt up to the think block. Not the trained one-pass prompt:
+    see the first_read control (controls.py)."""
+    text = think_prompt(tokenizer, msgs) + "\n</think>\n\n"
+    if not text.endswith(THINK_OFF_SUFFIX):
+        raise ValueError("the chat template's thinking prompt does not end with the opened think block "
+                         f"{THINK_OPEN!r} and a newline, which first_read \"thinking\" closes")
+    return text
+
+
+def check_thinking_prompt(tokenizer: Any) -> None:
+    """Check that the tokenizer's thinking prompt takes the empty thought of empty_thought_prompt; raises ValueError.
+    Like the thinking-off prompt of check_tokenizer, its end does not depend on the question, so a folder that thinks
+    checks it once, before any request."""
+    empty_thought_prompt(tokenizer, messages(_PROBE))
 
 
 def count_tokens(tokenizer: Any, text: str) -> int:

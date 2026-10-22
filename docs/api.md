@@ -19,7 +19,7 @@ document, the access log): [serving_publicly.md](serving_publicly.md).
   },
   "images": ["data:image/jpeg;base64,/9j/4AAQ..."],
   "think_mode": "auto", "gate": 0.6, "think_budget": 4096, "mix": 0.75, "thought_generation": "auto",
-  "allow_none": false, "none_check": true, "return_details": false, "return_thought": false
+  "first_read": "plain", "allow_none": false, "none_check": true, "return_details": false, "return_thought": false
 }
 ```
 
@@ -94,6 +94,7 @@ measured from the middle level, floored at 0. Yes/no answers have no confidence;
 | `think_budget` | integer ≥ 1 | most thought tokens; larger values are capped by the server's maximum (`serve --max-think-budget`, default: the default budget) |
 | `mix` | number in [0, 1] | final = (1 − mix) · first read-out + mix · read-out after the thought; 0 ignores the thought, 1 uses only the read-out after it |
 | `thought_generation` | `auto` / `stream` / `chunked` | how a thought is generated. `stream`: one streamed request; the loop detector looks at the thought each time another 1,024 tokens have arrived and ends the request when it loops. `chunked`: requests of 1,024 tokens, each re-sending the prompt and the thought so far, with the loop detector between them. `auto`: `stream` when the engine streams thoughts (vLLM 0.31 or later), else `chunked`. `stream` on another engine gets a 422 |
+| `first_read` | `plain` / `thinking`, default `plain` (`serve --first-read`) | the prompt of the one-pass read-outs of a request that may think. `plain`: the trained one-pass prompt. `thinking`: the thinking prompt with an empty thought; a thought then continues the read-out's prompt, so an engine with a prefix cache reads only the thought's own part, where after `plain` it reads the whole state again (the release template starts a thinking prompt's system message with a reasoning-effort line). It is not the trained prompt and moves answers that are not thought about. A `think_mode` `never` request reads `plain` |
 | `allow_none` | bool, default false (true with `serve --allow-none`) | choice questions get the extra last option "None of the above" (see above); a question's own `allow_none` overrides it; ignored by `noul` and `score` questions; a non-boolean gets a 422 |
 | `none_check` | bool, default true in `serve` | choice questions get the extra option internally and report `none_probability`; `choice` stays a listed option unless `allow_none` is set; a non-boolean gets a 422 |
 | `return_details` | bool | adds `details` to every answer and `timing_ms` to the response |

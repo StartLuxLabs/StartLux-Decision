@@ -232,7 +232,8 @@ async def health(request: web.Request) -> web.Response:
     out.update({
         "prompt_attention": decider.folder.prompt_attention, "engine": decider.backend.describe(),
         "defaults": {"think_mode": d.think_mode, "gate": d.gate, "think_budget": d.budget, "mix": d.mix,
-                     "thought_generation": decider.generation(d) if decider.can_think else None},
+                     "thought_generation": decider.generation(d) if decider.can_think else None,
+                     "first_read": d.first_read if decider.can_think else None},
         "max_think_budget": decider.max_budget, "context_length": decider.context_length})
     return web.json_response(out)
 

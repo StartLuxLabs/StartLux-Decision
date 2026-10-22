@@ -18,6 +18,10 @@ models.
 - Images in the evidence and prompts up to 262,144 tokens.
 - Production serving: API keys, TLS, early 429 responses, an access log and an optional request log.
 - Tools: `launch-vllm`, `bench`, `eval` and `quantize` (FP8, GGUF and MLX builds).
+- `first_read` control (`serve --first-read`): `thinking` renders the one-pass read-outs of a request that may think
+  as the thinking prompt with an empty thought, so that a thought on an engine with a prefix cache reads only its own
+  part instead of the whole state again. The default `plain` keeps the trained one-pass prompt. A folder that
+  thinks checks at startup that its chat template takes this form.
 - Choice options given as a list, or under `options`, are knocked out like `{option: description}`. Before, a list of
   more than 26 options, or of 26 when the extra "None of the above" option was added (`none_check` is on by default),
   was refused with a 422.
