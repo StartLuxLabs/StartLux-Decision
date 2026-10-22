@@ -3,7 +3,8 @@
 settings. Required: identical requests to vLLM (bodies, including every thought chunk, seed and read-out prompt) and
 identical probabilities, choices, scores and thought token counts, bit for bit. The deliberate differences are checked
 on their own: confidence formulas, the score legend order, usage.input_tokens of knock-out lists, mix 0 and
-single-option choice lists.
+single-option choice lists. The room of a thought near the end of the context differs too; package_room gives the
+proxy a shorter context for it, and test_pipeline / test_real_tokenizer check that every call fits the context.
 """
 from __future__ import annotations
 
@@ -113,12 +114,21 @@ def folder_for(s: SimpleNamespace) -> ModelFolder:
                        wide_group=25, wide_keep=3, wide_residual=1e-3, auto_think=auto, release_date="2026-10-11")
 
 
+def package_room(proxy: ref.Proxy, tok) -> None:
+    """Deliberate difference: the package counts a thought's room from the thought's prompt, the proxy from the
+    one-pass prompt. The two differ by the same number of tokens for every question, so the proxy gets the package's
+    room with a context that much shorter (max_len enters nothing else in the proxy)."""
+    plain, think = proxy.prompts(ref.messages(ref.from_systemone("s", {"type": "noul", "instructions": "q"}))[0])
+    proxy.a.max_len -= count_tokens(tok, think) - count_tokens(tok, plain)
+
+
 async def run_both(s: SimpleNamespace, state, questions: dict, tok=None):
     tok = tok or FakeTokenizer(open_think=s.open_think)
     fake_ref, fake_new = FakeVLLM(s.max_len, drop_rate=s.drop), FakeVLLM(s.max_len, drop_rate=s.drop)
     a = SimpleNamespace(mode=s.mode, tau=s.tau, mix=s.mix, budget=s.budget, prefix=s.prefix, tail_chars=s.tail_chars,
                         rep_pen=1.0, stop_loops=0, loop_chunk=s.loop_chunk, max_len=s.max_len, no_waves=True)
     proxy = ref.Proxy(a, tok, s.temp, s.tthink, ["http://127.0.0.1:8001/v1/completions"], fake_ref.complete)
+    package_room(proxy, tok)
     expected = await proxy.handle(state, questions)
     backend = VLLMBackend(["http://127.0.0.1:8001"], tok, waves=False, transport=fake_new)
     await backend.start()

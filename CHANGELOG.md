@@ -25,3 +25,6 @@ models.
 - Choice options given as a list, or under `options`, are knocked out like `{option: description}`. Before, a list of
   more than 26 options, or of 26 when the extra "None of the above" option was added (`none_check` is on by default),
   was refused with a 422.
+- A thought's room is the context less the thought's own prompt, not less the one-pass prompt. The release
+  template's thinking prompt is 48 tokens longer than the one-pass prompt (with the forced prefix), so near the end of
+  the context a thought cut at its room left a read-out after it that did not fit, and the request got a 422.

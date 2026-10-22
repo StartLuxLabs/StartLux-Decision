@@ -14,7 +14,7 @@ from startlux_decide.backends.fake import FakeBackend, FakeTokenizer
 from startlux_decide.controls import Controls, RequestError
 from startlux_decide.modelcfg import AutoThink, ModelFolder
 from startlux_decide.pipeline import CUT, SHARE_MIN, Decider, default_controls
-from startlux_decide.prompt import THINK_OFF_SUFFIX
+from startlux_decide.prompt import THINK_OFF_SUFFIX, count_tokens
 
 AUTO = ModelFolder(path="(test)", prompt_attention="causal", temperature_by_type={"choice": 1.0, "noul": 1.2},
                    letter_token_ids=tuple(range(65, 91)), wide_group=25, wide_keep=3, wide_residual=0.001,
@@ -100,6 +100,29 @@ class DetailsTest(unittest.TestCase):
         d = Decider(AUTO, FakeBackend(script=closing), context_length=300)
         out = run(d.decide("x" * 200, {"q": QUESTIONS["urgent"]}, Controls(think_mode="always", details=True)))
         self.assertFalse(out.answers["q"]["details"]["thought"]["used"])
+
+    def test_every_call_fits_the_context_to_its_end(self):
+        # A thought cut by the room the context leaves it gives the longest read-out after a thought. With NOTE the
+        # thinking prompt is longer than the one-pass prompt, as with the release template.
+        def letters(prompt, seed, max_tokens):          # one fake token each, never closed, never a loop
+            r = random.Random(seed)
+            return [r.choice(string.ascii_lowercase) for _ in range(max_tokens)], False
+
+        tok, context = FakeTokenizer(think_note=NOTE), 2000
+        for first_read in ("plain", "thinking"):
+            ctl = Controls(think_mode="always", first_read=first_read, details=True)
+            cut = []
+            for n in range(1350, 1680, 3):
+                backend = FakeBackend(tokenizer=tok, script=letters)
+                out = run(Decider(AUTO, backend, context_length=context).decide("x" * n, {"q": QUESTIONS["urgent"]},
+                                                                                ctl))
+                thought = out.answers["q"]["details"]["thought"]
+                cut.append(thought["used"] and thought["tokens"] < ctl.budget)
+                for call in backend.calls:
+                    generated = call[2] if call[0] == "generate" else 1
+                    self.assertLessEqual(count_tokens(tok, call[1]) + generated, context, (first_read, n, call[0]))
+            self.assertGreater(sum(cut), 50, first_read)        # thoughts cut short by the context were exercised
+            self.assertFalse(cut[-1], first_read)               # and the last state leaves no room for one
 
 
 NOTE = "Reasoning effort is set to high.\n\n"          # what the release template starts a thinking system line with

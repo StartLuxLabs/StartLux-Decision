@@ -210,7 +210,8 @@ The golden test (`tests/test_golden.py`) runs this package's pipeline and the pe
 the published AutoThink numbers side by side on a fake vLLM, over random requests and settings: the requests sent to
 vLLM (every read-out prompt, thought chunk, seed and sampling setting) and the probabilities, choices, scores and thought
 token counts are identical, bit for bit. Instant read-outs are the one-pass read-out of those runs (the same path with
-thinking off). Deliberate differences, none of which changes a probability of an answered question:
+thinking off). Deliberate differences, none of which changes a probability of an answered question except the room of
+a thought near the end of the context:
 
 | | release runs | this package |
 |---|---|---|
@@ -219,6 +220,7 @@ thinking off). Deliberate differences, none of which changes a probability of an
 | choice with one option | refused (422) | answered with probability 1 |
 | `mix` 0 | meant "the read-out after the thought only" | means "the first read-out only" (the formula) |
 | `usage.input_tokens` of knocked-out lists | the final round's prompt | every round's prompts |
+| a thought's room (its most tokens) | context − one-pass prompt − 64 | context − the thought's prompt (thinking prompt and forced prefix) − 64. The thought's prompt is 48 tokens longer on the release template, so the read-out after a thought cut at the release's room was over the context (a 422). Only prompts within the thought budget of the end of the context are affected; the golden test gives the release side a context shorter by that difference |
 | request controls | `think_mode` only, unknown values ignored | `think_mode`, `gate`, `think_budget`, `mix`, `thought_generation`, `first_read`, details; bad values give 422 |
 | thoughts on vLLM 0.31 | (not run) | one streamed request (the chunked path on request); the golden test runs the chunked path, and `tests/test_stream.py` shows that with one token per stream event the streamed path gives the same thoughts and probabilities as the chunked one on the fake vLLM |
 | malformed body, empty `questions` | 400 | 422, FastAPI-style `detail` |

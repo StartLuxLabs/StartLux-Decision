@@ -3,7 +3,7 @@ STARTLUX_TEST_MODEL_DIR to a StartLux-Decision folder to run them; they are skip
 
 * the letter ids match the folder's letter_token_ids, and the one-pass / thinking prompts end as trained;
 * a thought continues the token ids of the empty-thought read-out but its last three (first_read "thinking");
-* with first_read "thinking", every engine call of a request that thinks fits the context up to its end;
+* every engine call of a request that thinks fits the context up to its end, with either first_read;
 * the vLLM plugin's prompt-end rule (on token ids) gives the same prompt end as the transformers reference rule
   (the last "<think>" followed by a newline, or the whole input for a one-pass prompt) on many prompts;
 * the pipeline runs on the real chat template.
@@ -19,7 +19,7 @@ import unittest
 from startlux_decide.backends.fake import FakeBackend
 from startlux_decide.controls import Controls
 from startlux_decide.modelcfg import RELEASE_PREFIX, load_model_folder, load_tokenizer
-from startlux_decide.pipeline import CONTEXT_MARGIN, MIN_ROOM, Decider
+from startlux_decide.pipeline import Decider
 from startlux_decide.prompt import (check_tokenizer, count_tokens, empty_thought_prompt, from_systemone, messages,
                                     plain_prompt, think_prompt)
 from startlux_decide.vllm_plugin import PromptEnd
@@ -62,7 +62,7 @@ class RealTokenizerTest(unittest.TestCase):
         self.assertEqual(read[:-3], thought[:len(read) - 3])
         self.assertEqual(self.tok.decode(read[-3:]), "\n\n</think>\n\n")
 
-    def test_first_read_thinking_fits_the_context_to_its_end(self):
+    def test_every_call_fits_the_context_to_its_end(self):
         # A thought cut by the room the context leaves it gives the longest read-out after a thought.
         words = [w for w in (" river", " stone", " cloud", " field", " paper", " market", " window", " garden",
                              " silver", " orange", " planet", " signal", " bridge", " castle", " forest", " island")
@@ -76,23 +76,20 @@ class RealTokenizerTest(unittest.TestCase):
         folder, context, spec = load_model_folder(MODEL_DIR), 1024, {"type": "noul", "instructions": "Refund?"}
         if folder.auto_think is None:
             self.skipTest("this folder does not think")
-        ctl = Controls(think_mode="always", first_read="thinking", details=True)
-        rooms, cut_at_room = [], 0
-        for n in range(700, 860):
-            state = "Ticket: charged twice." + " the" * n
-            room = context - count_tokens(self.tok, empty_thought_prompt(
-                self.tok, messages(from_systemone(state, spec)))) - CONTEXT_MARGIN
-            rooms.append(room)
-            engine = FakeBackend(tokenizer=self.tok, script=cut)
-            out = asyncio.run(Decider(folder, engine, context_length=context).decide(state, {"q": spec}, ctl))
-            thought = out.answers["q"]["details"]["thought"]
-            self.assertEqual(thought["used"], room > MIN_ROOM, room)
-            cut_at_room += thought["used"] and thought["tokens"] == room
-            for call in engine.calls:
-                generated = call[2] if call[0] == "generate" else 1
-                self.assertLessEqual(count_tokens(self.tok, call[1]) + generated, context, (room, call[0]))
-        self.assertTrue(0 <= min(rooms) <= MIN_ROOM and max(rooms) > 100, rooms)
-        self.assertGreater(cut_at_room, 50)
+        for first_read in ("plain", "thinking"):
+            ctl = Controls(think_mode="always", first_read=first_read, details=True)
+            short = []
+            for n in range(700, 860):
+                state = "Ticket: charged twice." + " the" * n
+                engine = FakeBackend(tokenizer=self.tok, script=cut)
+                out = asyncio.run(Decider(folder, engine, context_length=context).decide(state, {"q": spec}, ctl))
+                thought = out.answers["q"]["details"]["thought"]
+                short.append(thought["used"] and thought["tokens"] < ctl.budget)
+                for call in engine.calls:
+                    generated = call[2] if call[0] == "generate" else 1
+                    self.assertLessEqual(count_tokens(self.tok, call[1]) + generated, context, (first_read, n, call[0]))
+            self.assertGreater(sum(short), 50, first_read)      # thoughts cut short by the context were exercised
+            self.assertFalse(short[-1], first_read)             # and the last state leaves no room for one
 
     def test_prompt_end_rule(self):
         pe, r = PromptEnd(self.tok), random.Random(3)

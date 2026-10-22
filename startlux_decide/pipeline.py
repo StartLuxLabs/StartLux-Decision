@@ -10,7 +10,7 @@ One question:
    "thinking", a request that may think renders its one-pass prompts as the thinking prompt with an empty thought
    instead (prompt.empty_thought_prompt), and a thought continues their beginning.
 3. Gate (AutoThink): think when think_mode is "always", or "auto" and the top probability is below the gate, and the
-   context has room. The thought starts with the forced prefix and is generated in one of two ways
+   context has room beyond the thought's prompt. The thought starts with the forced prefix and is generated in one of two ways
    (thought_generation): "stream", one streamed request, where the loop detector looks at the thought each time
    another `chunk_tokens` tokens have arrived and a looping thought is cut there and its request ended; or "chunked",
    `chunk_tokens` tokens per request, each request re-sending the prompt and the thought so far, with the loop detector
@@ -62,7 +62,7 @@ CUT = "\n\nI have to decide now with what I have worked out so far.\n</think>\n\
 CLOSE = "\n</think>\n\n"
 STOP = ("</think>",)
 DEFAULT_CONTEXT = 65536     # vLLM --max-model-len of the release runs
-CONTEXT_MARGIN = 64         # the engine refuses prompt + max_tokens over its context
+CONTEXT_MARGIN = 64         # beyond a thought's prompt and budget: the line ending it and the read-out's letter
 MIN_ROOM = 32               # no thought when fewer tokens than this are left
 SHARE_MIN = 4096            # a shared prompt beginning this long is read into the prefix cache once per request
 
@@ -353,8 +353,8 @@ class Decider:
         p0 = await self._read(lane, one_pass, k, typ, req)
         first_ms += _ms(time.perf_counter() - t0)
         p, p1, thought, after_ms = p0, None, None, 0.0
-        room = self.context_length - n_in - CONTEXT_MARGIN
-        if (ctl.think_mode == "always" or (ctl.think_mode == "auto" and max(p0) < ctl.gate)) and room > MIN_ROOM:
+        think = ctl.think_mode == "always" or (ctl.think_mode == "auto" and max(p0) < ctl.gate)
+        if think and (room := self._room(msgs, req)) > MIN_ROOM:
             thought = await self._think(lane, msgs, min(ctl.budget, room), self.generation(ctl), req)
             t0 = time.perf_counter()
             p1 = await self._read(lane, thought.read_prompt, k, typ, req)
@@ -416,6 +416,13 @@ class Decider:
         return {"first_pass": {"probabilities": first, "top": top, "ms": first_ms}, "thought": info,
                 "after_thought": {"probabilities": after, "ms": after_ms} if thought else None,
                 "gate": gate, "mix": ctl.mix if thought else None, "total_ms": _ms(time.perf_counter() - t_start)}
+
+    def _room(self, msgs: list, req: _Request) -> int:
+        """Tokens a thought of the question may take: the context less the thought's prompt (the thinking prompt and
+        the forced prefix) and CONTEXT_MARGIN. Not counted from the one-pass prompt: the release template's thinking
+        prompt is longer, so the read-out after a thought cut at that room would not fit the context."""
+        prompt = think_prompt(self.tok, msgs) + self.auto.prefix
+        return self.context_length - count_tokens(self.tok, prompt) - req.extra_tokens - CONTEXT_MARGIN
 
     async def _think(self, lane: Backend, msgs: list, budget: int, generation: str = "chunked",
                      req: _Request | None = None) -> _Thought:
