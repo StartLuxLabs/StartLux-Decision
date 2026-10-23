@@ -26,17 +26,20 @@ _SPLIT = re.compile("(" + "|".join(re.escape(t) for t in SPECIAL_TOKENS) + ")")
 
 class FakeTokenizer:
     """Chat template and tokenizer with the layout of the real ones; one token per character outside special tokens.
-    open_think=False imitates a template that does not open the think block when thinking is on."""
+    open_think=False imitates a template that does not open the think block when thinking is on. `think_note` starts
+    the system message of a thinking prompt, as the release template's reasoning-effort line does."""
 
     eos_token_id = _SPECIAL_BASE + SPECIAL_TOKENS.index("<|im_end|>")
     pad_token_id = _SPECIAL_BASE + SPECIAL_TOKENS.index("<|endoftext|>")
 
-    def __init__(self, open_think: bool = True):
-        self.open_think = open_think
+    def __init__(self, open_think: bool = True, think_note: str = ""):
+        self.open_think, self.think_note = open_think, think_note
 
     def apply_chat_template(self, messages: Sequence[dict], tokenize: bool = False, add_generation_prompt: bool = True,
                             enable_thinking: bool = True) -> str:
-        text = "".join(f"<|im_start|>{m['role']}\n{_content(m['content'])}<|im_end|>\n" for m in messages)
+        note = self.think_note if enable_thinking is not False else ""
+        text = "".join(f"<|im_start|>{m['role']}\n{note if m['role'] == 'system' else ''}{_content(m['content'])}"
+                       "<|im_end|>\n" for m in messages)
         if add_generation_prompt:
             text += "<|im_start|>assistant\n"
             if enable_thinking is False:

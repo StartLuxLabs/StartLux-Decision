@@ -10,7 +10,7 @@ import shlex
 import sys
 import time
 
-from .controls import THOUGHT_GENERATIONS
+from .controls import FIRST_READS, THOUGHT_GENERATIONS
 from .modelcfg import THINK_MODES, load_model_folder, load_tokenizer, think_mode
 
 
@@ -87,6 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--thought-generation", choices=THOUGHT_GENERATIONS,
                    help="auto (default): one streamed request per thought on engines that stream thoughts safely "
                         "(vLLM 0.31 or later), 1,024-token chunks elsewhere; stream; chunked")
+    g.add_argument("--first-read", choices=FIRST_READS,
+                   help="plain (default): the trained one-pass prompt; thinking: in requests that may think, the "
+                        "thinking prompt with an empty thought, so that a thought reuses its prefix cache instead of "
+                        "reading the state again (docs/api.md)")
     g.add_argument("--max-think-budget", type=int, help="largest think_budget a request may ask for (default: the "
                                                         "default budget)")
     g.add_argument("--no-none-check", action="store_true",
@@ -196,7 +200,8 @@ def cmd_serve(a: argparse.Namespace) -> int:
     if folder.kind == "instant" and a.think_mode not in (None, "never"):
         raise SystemExit("this is an Instant folder: it does not think (drop --think-mode)")
     defaults = default_controls(folder, think_mode=a.think_mode, gate=a.gate, budget=a.think_budget, mix=a.mix,
-                                thought_generation=a.thought_generation, none_check=not a.no_none_check,
+                                thought_generation=a.thought_generation, first_read=a.first_read,
+                                none_check=not a.no_none_check,
                                 allow_none=True if a.allow_none else None)
     max_budget = a.max_think_budget or defaults.budget
     if defaults.budget > max_budget:

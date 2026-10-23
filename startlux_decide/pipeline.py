@@ -6,9 +6,11 @@ One question:
 1. Choice lists over 26 options are first knocked out: near-equal groups of at most 25 options are read in one pass
    each, the 3 best of every group go to the final round (the 26 best overall when more qualify). This holds for
    every form of a choice list: {option: description}, a list of options, or either under "options".
-2. First read-out: the one-pass prompt (thinking off), letter probabilities at the type's temperature.
+2. First read-out: the one-pass prompt (thinking off), letter probabilities at the type's temperature. With first_read
+   "thinking", a request that may think renders its one-pass prompts as the thinking prompt with an empty thought
+   instead (prompt.empty_thought_prompt), and a thought continues their beginning.
 3. Gate (AutoThink): think when think_mode is "always", or "auto" and the top probability is below the gate, and the
-   context has room. The thought starts with the forced prefix and is generated in one of two ways
+   context has room beyond the thought's prompt. The thought starts with the forced prefix and is generated in one of two ways
    (thought_generation): "stream", one streamed request, where the loop detector looks at the thought each time
    another `chunk_tokens` tokens have arrived and a looping thought is cut there and its request ended; or "chunked",
    `chunk_tokens` tokens per request, each request re-sending the prompt and the thought so far, with the loop detector
@@ -31,8 +33,11 @@ prompt of the request holds them, and every engine call of the request sends the
 
 Long states: on an engine with a prefix cache (vLLM 0.31 or later) and a causal folder, the questions of a request
 whose one-pass prompts share a beginning of SHARE_MIN tokens or more run on one server, after that beginning has been
-read into the cache once; each question then reads only its own part (and its thought re-reads nothing). Instant
-folders read each prompt whole, every time: their prompt attention is bidirectional, so no prefix can be reused.
+read into the cache once; each question then reads only its own part. A thought reads only its own part too with
+first_read "thinking". With "plain" it does not: the release template's thinking prompt differs from the one-pass
+prompt from the start of its system message on, so the first thought of a request reads the whole state again (the
+others share its beginning). Instant folders read each prompt whole, every time: their prompt attention is
+bidirectional, so no prefix can be reused.
 """
 from __future__ import annotations
 
@@ -48,8 +53,8 @@ from .controls import STREAM_REFUSED, Controls, RequestError, parse_controls
 from .images import IMAGE_PLACEHOLDER, MAX_IMAGES, MAX_PIXELS, MIN_PIXELS, Media, load_media, place_images
 from .loops import loop_cut, looping
 from .modelcfg import AutoThink, ModelFolder
-from .prompt import (MAX_OPTIONS, NONE_OPTION, Row, check_tokenizer, count_tokens, from_systemone, messages,
-                     plain_prompt, state_text, think_prompt)
+from .prompt import (MAX_OPTIONS, NONE_OPTION, Row, check_thinking_prompt, check_tokenizer, count_tokens,
+                     empty_thought_prompt, from_systemone, messages, plain_prompt, state_text, think_prompt)
 from .readout import (answer, choice_answer, knockout_combine, knockout_finalists, knockout_groups, mixture,
                       option_probabilities, probabilities, retemper, split_none)
 
@@ -57,7 +62,7 @@ CUT = "\n\nI have to decide now with what I have worked out so far.\n</think>\n\
 CLOSE = "\n</think>\n\n"
 STOP = ("</think>",)
 DEFAULT_CONTEXT = 65536     # vLLM --max-model-len of the release runs
-CONTEXT_MARGIN = 64         # the engine refuses prompt + max_tokens over its context
+CONTEXT_MARGIN = 64         # beyond a thought's prompt and budget: the line ending it and the read-out's letter
 MIN_ROOM = 32               # no thought when fewer tokens than this are left
 SHARE_MIN = 4096            # a shared prompt beginning this long is read into the prefix cache once per request
 
@@ -107,11 +112,13 @@ class _Thought:
 
 @dataclass
 class _Request:
-    """What the questions of one request share: its images, and the server when they share a long state."""
+    """What the questions of one request share: its images, the form of its one-pass prompts, and the server when they
+    share a long state."""
     media: Media | None = None
     extra_tokens: int = 0               # image tokens beyond the one placeholder token each, in every prompt
     lane: Backend | None = None
     shared_tokens: int = 0              # tokens of the shared beginning read into the cache (0: none)
+    empty_thought: bool = False         # one-pass prompts are empty_thought_prompt (first_read "thinking")
 
     def kw(self) -> dict:
         """The keyword arguments of an engine call."""
@@ -165,6 +172,8 @@ class Decider:
         if folder.letter_token_ids and tuple(self.letter_ids) != folder.letter_token_ids:
             raise ValueError("the tokenizer's letter ids differ from letter_token_ids in decision_config.json")
         self.auto = folder.auto_think
+        if self.auto is not None:
+            check_thinking_prompt(self.tok)     # any request may ask for first_read "thinking"
         self.defaults = defaults or default_controls(folder)
         if self.defaults.thought_generation == "stream" and self.auto is not None and not backend.streams:
             raise ValueError("the default thought generation is \"stream\", but this engine does not stream thoughts "
@@ -190,6 +199,16 @@ class Decider:
         if ctl.thought_generation == "auto":
             return "stream" if self.backend.streams else "chunked"
         return ctl.thought_generation
+
+    @staticmethod
+    def _request(ctl: Controls) -> _Request:
+        """A new request: its one-pass prompts take the thinking form when first_read asks for it and the request may
+        think (a request that never thinks has no thought to continue them)."""
+        return _Request(empty_thought=ctl.first_read == "thinking" and ctl.think_mode != "never")
+
+    def _one_pass(self, msgs: list, req: _Request) -> str:
+        """The one-pass prompt of a question of this request."""
+        return (empty_thought_prompt if req.empty_thought else plain_prompt)(self.tok, msgs)
 
     # ---------------------------------------------------------------- validation
     def prepare(self, state: Any, questions: Any, req: _Request | None = None,
@@ -229,7 +248,7 @@ class Decider:
                 q = _Question(key, spec, groups=knockout_groups(list(crit), self.folder.wide_group), none=none)
                 for g in q.groups:
                     row = from_systemone(state, dict(spec, criteria={c: crit[c] for c in g}))
-                    q.group_prompts.append(plain_prompt(self.tok, messages(row)))
+                    q.group_prompts.append(self._one_pass(messages(row), req))
                     q.group_tokens += count_tokens(self.tok, q.group_prompts[-1]) + req.extra_tokens
                 return q
         row = from_systemone(state, spec, none)
@@ -246,7 +265,7 @@ class Decider:
             raise RequestError("this is an Instant model: it does not think", ("body", "think_mode"))
         if ctl.think_mode != "never" and self.generation(ctl) == "stream" and not self.backend.streams:
             raise RequestError(STREAM_REFUSED, ("body", "thought_generation"))
-        req = _Request()
+        req = self._request(ctl)
         if images is not None and images != []:
             state, req.media = self._images(state, images)
             req.extra_tokens = sum(t - 1 for t in req.media.tokens)
@@ -285,7 +304,7 @@ class Decider:
         if not self.backend.caches_prefixes or self.folder.bidirectional:
             return
         prompts = [p for q in items for p in q.group_prompts]
-        prompts += [plain_prompt(self.tok, q.msgs) for q in items if q.msgs is not None]
+        prompts += [self._one_pass(q.msgs, req) for q in items if q.msgs is not None]
         if len(prompts) < 2:
             return
         prefix = os.path.commonprefix(prompts)
@@ -327,15 +346,15 @@ class Decider:
             first, finalists = knockout_finalists(q.groups, reads, self.folder.wide_keep, MAX_OPTIONS - q.none)
             row = from_systemone(state, dict(q.spec, criteria={c: q.spec["criteria"][c] for c in finalists}), q.none)
             msgs = messages(row)
-        plain = plain_prompt(self.tok, msgs)
+        one_pass = self._one_pass(msgs, req)
         k, typ = len(row["options"]), row["type"]
-        n_in = count_tokens(self.tok, plain) + req.extra_tokens
+        n_in = count_tokens(self.tok, one_pass) + req.extra_tokens
         t0 = time.perf_counter()
-        p0 = await self._read(lane, plain, k, typ, req)
+        p0 = await self._read(lane, one_pass, k, typ, req)
         first_ms += _ms(time.perf_counter() - t0)
         p, p1, thought, after_ms = p0, None, None, 0.0
-        room = self.context_length - n_in - CONTEXT_MARGIN
-        if (ctl.think_mode == "always" or (ctl.think_mode == "auto" and max(p0) < ctl.gate)) and room > MIN_ROOM:
+        think = ctl.think_mode == "always" or (ctl.think_mode == "auto" and max(p0) < ctl.gate)
+        if think and (room := self._room(msgs, req)) > MIN_ROOM:
             thought = await self._think(lane, msgs, min(ctl.budget, room), self.generation(ctl), req)
             t0 = time.perf_counter()
             p1 = await self._read(lane, thought.read_prompt, k, typ, req)
@@ -397,6 +416,13 @@ class Decider:
         return {"first_pass": {"probabilities": first, "top": top, "ms": first_ms}, "thought": info,
                 "after_thought": {"probabilities": after, "ms": after_ms} if thought else None,
                 "gate": gate, "mix": ctl.mix if thought else None, "total_ms": _ms(time.perf_counter() - t_start)}
+
+    def _room(self, msgs: list, req: _Request) -> int:
+        """Tokens a thought of the question may take: the context less the thought's prompt (the thinking prompt and
+        the forced prefix) and CONTEXT_MARGIN. Not counted from the one-pass prompt: the release template's thinking
+        prompt is longer, so the read-out after a thought cut at that room would not fit the context."""
+        prompt = think_prompt(self.tok, msgs) + self.auto.prefix
+        return self.context_length - count_tokens(self.tok, prompt) - req.extra_tokens - CONTEXT_MARGIN
 
     async def _think(self, lane: Backend, msgs: list, budget: int, generation: str = "chunked",
                      req: _Request | None = None) -> _Thought:

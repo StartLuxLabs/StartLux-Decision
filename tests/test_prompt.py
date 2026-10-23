@@ -5,8 +5,8 @@ import random
 import unittest
 
 from startlux_decide.backends.fake import FakeTokenizer
-from startlux_decide.prompt import (SYSTEM, check_tokenizer, count_tokens, from_systemone, messages, plain_prompt,
-                                    score_keys, state_text, think_prompt)
+from startlux_decide.prompt import (SYSTEM, THINK_OFF_SUFFIX, check_tokenizer, count_tokens, empty_thought_prompt,
+                                    from_systemone, messages, plain_prompt, score_keys, state_text, think_prompt)
 
 from . import reference_impl as ref
 from .test_golden import random_question, random_state
@@ -56,6 +56,23 @@ class ExactTextTest(unittest.TestCase):
         self.assertEqual(think_prompt(tok, msgs), head + "<|im_start|>assistant\n<think>\n")
         self.assertEqual(think_prompt(FakeTokenizer(open_think=False), msgs), head + "<|im_start|>assistant\n<think>\n")
         self.assertEqual(count_tokens(tok, "<think>ab"), 3)
+
+    def test_empty_thought_prompt(self):
+        note = "Reasoning effort is set to high.\n\n"
+        tok = FakeTokenizer(think_note=note)
+        msgs = messages(from_systemone("s", {"type": "noul", "instructions": "q?"}))
+        read = empty_thought_prompt(tok, msgs)
+        self.assertEqual(read, think_prompt(tok, msgs) + "\n</think>\n\n")      # a thought continues the read-out
+        self.assertTrue(read.endswith(THINK_OFF_SUFFIX))
+        self.assertEqual(read.replace(note, "", 1), plain_prompt(tok, msgs))   # the note is all that differs
+        unopened = FakeTokenizer(open_think=False)                             # think_prompt opens the block itself
+        self.assertEqual(empty_thought_prompt(unopened, msgs), plain_prompt(unopened, msgs))
+
+        class Unopened(FakeTokenizer):              # ends the thinking prompt with "<think>" and no newline
+            def apply_chat_template(self, *args, **kwargs):
+                return super().apply_chat_template(*args, **kwargs).removesuffix("\n")
+        with self.assertRaisesRegex(ValueError, "opened think block"):
+            empty_thought_prompt(Unopened(), msgs)
 
 
 class ReferenceRendererTest(unittest.TestCase):
