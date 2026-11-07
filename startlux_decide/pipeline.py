@@ -300,6 +300,8 @@ class Decider:
 
     async def _read(self, lane: Backend, prompt: str, k: int, question_type: str, req: _Request) -> list[float]:
         z = await lane.readout(prompt, self.letter_ids[:k], **req.kw())
+        if self.folder.letter_bias:
+            z = [value + self.folder.letter_bias[i] for i, value in enumerate(z)]
         return probabilities(z, self.folder.temperature(question_type))
 
     async def _question(self, state: Any, q: _Question, ctl: Controls, req: _Request) -> _Outcome:
