@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <defs>
+    <style>
+      .t { font-family: "IBM Plex Sans", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; font-size: 14px; fill: #1a1a1a; }
+      .h { font-family: "IBM Plex Sans", "Noto Sans CJK SC", sans-serif; font-size: 18px; font-weight: 700; fill: #111; }
+      .s { font-size: 12px; fill: #444; }
+      .mono { font-family: "IBM Plex Mono", "Noto Sans Mono", monospace; font-size: 13px; fill: #111; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#f7f5f0"/>
+  
+  <text class="h" x="28" y="36">合法一步：c=0 且 s≥p（整段 prompt 一次装下）</text>
+
+  <text class="t" x="28" y="70">Step 1 · prefill（插件做 plan + fix-up）</text>
+  <rect x="40" y="90" width="700" height="44" fill="#68d391" stroke="#276749" stroke-width="1.5"/>
+  <text class="mono" x="60" y="118">[0 ………… p) 整段双向区，本步一次算完</text>
+  <rect x="740" y="90" width="120" height="44" fill="#f6d58a" stroke="#b7791f" stroke-width="1.5"/>
+  <text class="mono" x="755" y="118">可含 decode</text>
+  <text class="s" x="40" y="160">条件：computed=0，scheduled ≥ p → fix-up 能一次覆盖完整 [0,p)</text>
+
+  <text class="t" x="28" y="210">Step 2+ · decode（插件不动）</text>
+  <rect x="40" y="230" width="700" height="36" fill="#9ec5e8" stroke="#2b6cb0" stroke-width="1.5"/>
+  <text class="mono" x="60" y="253">KV 里已是双向算过的 prompt K/V</text>
+  <rect x="740" y="230" width="120" height="36" fill="#f6ad55" stroke="#c05621" stroke-width="1.5"/>
+  <text class="mono" x="760" y="253">新 query</text>
+  <text class="s" x="40" y="290">后续 query 位置都 ≥ p，只做因果读；CUDA graph 可照常跑 decode</text>
+
+  <rect x="40" y="320" width="840" height="70" rx="8" fill="#fff" stroke="#68d391" stroke-width="2"/>
+  <text class="t" x="60" y="350">结果：mask 正确 =「prompt 内双向 + thought/readout 因果」</text>
+  <text class="s" x="60" y="375">这正是 Instant 训练时的 full-attention 语义</text>
+
+</svg>
