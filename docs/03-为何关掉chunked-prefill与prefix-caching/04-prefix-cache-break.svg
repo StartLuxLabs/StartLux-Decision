@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <defs>
+    <style>
+      .t { font-family: "IBM Plex Sans", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; font-size: 14px; fill: #1a1a1a; }
+      .h { font-family: "IBM Plex Sans", "Noto Sans CJK SC", sans-serif; font-size: 18px; font-weight: 700; fill: #111; }
+      .s { font-size: 12px; fill: #444; }
+      .mono { font-family: "IBM Plex Mono", "Noto Sans Mono", monospace; font-size: 13px; fill: #111; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#f7f5f0"/>
+  
+  <text class="h" x="28" y="36">关 prefix caching 的原因：cache hit → 本步从中间接着算（c&gt;0）</text>
+
+  <text class="t" x="28" y="70">Request X 曾算过前缀，KV（甚至是 stock 因果算的）进了 prefix cache</text>
+
+  <rect x="40" y="95" width="320" height="50" fill="#b794f4" stroke="#6b46c1" stroke-width="1.5"/>
+  <text class="mono" x="70" y="125">prefix cache hit 段</text>
+  <text class="s" x="70" y="165">复用后：computed = c_hit &gt; 0</text>
+
+  <rect x="360" y="95" width="360" height="50" fill="#f6d58a" stroke="#b7791f" stroke-width="1.5"/>
+  <text class="mono" x="420" y="125">本步只算后缀 scheduled</text>
+
+  <line x1="780" y1="80" x2="780" y2="170" stroke="#c53030" stroke-width="2"/>
+  <text class="mono" x="788" y="100" fill="#c53030">p</text>
+
+  <rect x="40" y="200" width="840" height="180" rx="8" fill="#faf5ff" stroke="#b794f4" stroke-width="2"/>
+  <text class="t" x="60" y="235">两层踩坑</text>
+  <text class="t" x="60" y="270">1. 调度层：c&gt;0，直接踩同一条硬约束（prompt 被当成「已算过 + 本步续算」）</text>
+  <text class="t" x="60" y="305">2. 内容层：cache 里若是 stock 因果 KV，后面的双向 fix-up 也补不回整段 prompt</text>
+  <text class="t" x="60" y="340">   （fix-up 只覆盖本步出现的行；命中段的行不在本步 forward 里）</text>
+  <text class="s" x="60" y="370">0.31 上这类 hybrid 模型的 prefix caching 还和 chunked prefill 绑在一起开 → 插件两边都要关</text>
+
+</svg>

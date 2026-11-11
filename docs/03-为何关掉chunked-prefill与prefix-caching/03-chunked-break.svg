@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <defs>
+    <style>
+      .t { font-family: "IBM Plex Sans", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; font-size: 14px; fill: #1a1a1a; }
+      .h { font-family: "IBM Plex Sans", "Noto Sans CJK SC", sans-serif; font-size: 18px; font-weight: 700; fill: #111; }
+      .s { font-size: 12px; fill: #444; }
+      .mono { font-family: "IBM Plex Mono", "Noto Sans Mono", monospace; font-size: 13px; fill: #111; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#f7f5f0"/>
+  
+  <text class="h" x="28" y="36">关 chunked prefill 的原因：切块 → s &lt; p 或后续步 c &gt; 0</text>
+
+  <text class="t" x="28" y="72">错误切法（chunked prefill 开着时常见）</text>
+
+  <text class="mono" x="40" y="105">Step A</text>
+  <rect x="120" y="82" width="240" height="40" fill="#fc8181" stroke="#c53030" stroke-width="1.5"/>
+  <text class="mono" x="145" y="108">只算 [0, s1)，s1 &lt; p</text>
+  <text class="s" x="380" y="108">fix-up 只能改本步出现的行 → 只覆盖半截</text>
+
+  <text class="mono" x="40" y="165">Step B</text>
+  <rect x="120" y="142" width="200" height="40" fill="#9ec5e8" stroke="#2b6cb0" stroke-width="1.5"/>
+  <text class="s" x="145" y="167">c=s1&gt;0 已在 cache</text>
+  <rect x="320" y="142" width="240" height="40" fill="#fc8181" stroke="#c53030" stroke-width="1.5"/>
+  <text class="mono" x="340" y="167">再算后面一块</text>
+  <text class="s" x="580" y="167">前面半截的输出行已不在本步</text>
+
+  <line x1="560" y1="70" x2="560" y2="200" stroke="#c53030" stroke-width="2" stroke-dasharray="5 4"/>
+  <text class="mono" x="568" y="90" fill="#c53030">p</text>
+
+  <rect x="40" y="220" width="840" height="160" rx="8" fill="#fff5f5" stroke="#fc8181" stroke-width="2"/>
+  <text class="t" x="60" y="255">插件硬约束（vllm_plugin._plan）</text>
+  <text class="mono" x="60" y="290">if c != 0 or s &lt; p: raise … prompt would be split across steps</text>
+  <text class="t" x="60" y="325">• 半截 prompt 无法一次覆盖完整 [0,p) → mask 错</text>
+  <text class="t" x="60" y="355">• 后面步即使再算，也补不回「早先那些行本该看到后面 key」的双向信息</text>
+
+</svg>

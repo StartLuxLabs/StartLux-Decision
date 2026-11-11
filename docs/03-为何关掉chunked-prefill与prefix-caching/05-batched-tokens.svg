@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420">
+  <defs>
+    <style>
+      .t { font-family: "IBM Plex Sans", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif; font-size: 14px; fill: #1a1a1a; }
+      .h { font-family: "IBM Plex Sans", "Noto Sans CJK SC", sans-serif; font-size: 18px; font-weight: 700; fill: #111; }
+      .s { font-size: 12px; fill: #444; }
+      .mono { font-family: "IBM Plex Mono", "Noto Sans Mono", monospace; font-size: 13px; fill: #111; }
+    </style>
+  </defs>
+  <rect width="100%" height="100%" fill="#f7f5f0"/>
+  
+  <text class="h" x="28" y="36">连带：max_num_batched_tokens ≥ max_model_len</text>
+
+  <text class="t" x="28" y="72">这两个旋钮各管什么</text>
+  <rect x="40" y="95" width="400" height="90" rx="8" fill="#fff" stroke="#2b6cb0" stroke-width="1.5"/>
+  <text class="mono" x="60" y="125">max_model_len</text>
+  <text class="t" x="60" y="155">单条请求最长能到多少 token</text>
+  <text class="s" x="60" y="175">（prompt + 生成上限的上限）</text>
+
+  <rect x="480" y="95" width="400" height="90" rx="8" fill="#fff" stroke="#b7791f" stroke-width="1.5"/>
+  <text class="mono" x="500" y="125">max_num_batched_tokens</text>
+  <text class="t" x="500" y="155">一步 forward 里，所有请求合计</text>
+  <text class="s" x="500" y="175">最多塞多少「新算」token</text>
+
+  <rect x="40" y="220" width="840" height="160" rx="8" fill="#f0fff4" stroke="#68d391" stroke-width="2"/>
+  <text class="t" x="60" y="255">为什么 Instant 要求 batched ≥ model_len</text>
+  <text class="t" x="60" y="290">最长的那条 prompt 也必须能在单步里整段装下，否则 scheduler 只能切块 → 又变 s&lt;p</text>
+  <text class="t" x="60" y="325">实务：launch-vllm 对 Instant 两边设成同一个大数（0.31 常给到 131072）</text>
+  <text class="s" x="60" y="355">代价：一步可能很「胖」，长 prefill 会拖住同步的 decode；这是正确性换吞吐</text>
+
+</svg>
