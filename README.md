@@ -8,7 +8,7 @@
   <a href="https://arxiv.org/abs/2610.17309">Technical report</a>&nbsp;&nbsp;|&nbsp;&nbsp;
   <a href="https://decision.startlux.com/">Blog</a>&nbsp;&nbsp;|&nbsp;&nbsp;
   <a href="docs/api.md">API reference</a>&nbsp;&nbsp;|&nbsp;&nbsp;
-  <a href="https://bamboonode.dev/">Free unlimited use</a>
+  <a href="https://decision.startlux.com/portal/login">Free unlimited use</a>
 </p>
 
 <p align="center">
@@ -17,6 +17,8 @@
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.9%2B-8A5CD6" alt="Python"></a>
   <a href="#engines"><img src="https://img.shields.io/badge/backends-vLLM%20%7C%20llama.cpp%20%7C%20MLX-8A5CD6" alt="Backends"></a>
 </p>
+
+> **Service update:** The previous access page and API endpoint have been retired. Please use the new [StartLux API portal](https://decision.startlux.com/portal/login).
 
 StartLux-Decision is a family of open decision models. Given a state (text, JSON or images) and a set of typed
 questions, a model returns a probability for every option of every question: a choice among listed options
@@ -48,7 +50,7 @@ One `/v1/systemone`.
 
 In the chess and game runs, every step is one request with typed questions, answered by StartLux-Decision-v1-27B, the
 first release, in one pass. The rescue and launch videos send one frame a second with nine questions to the 27B
-AutoThink model on [bamboonode.dev](https://bamboonode.dev/), which thinks only when its top probability is below the
+AutoThink model on [decision.startlux.com](https://decision.startlux.com/portal/login), which thinks only when its top probability is below the
 0.6 gate. Their footage is from the U.S. Coast Guard and NASA (public domain, no endorsement implied), and the faces of
 the people being rescued are blurred. Click a preview for the video. [v1/README.md](v1/README.md#demos) describes each
 harness, and the harnesses for computer use and chess are in [v1/demos](v1/demos).
@@ -91,8 +93,7 @@ unsure it writes a thought and reads the answer a second time, and the thought t
 
 ## Quick start
 
-To try a model without a GPU, use [bamboonode.dev](https://bamboonode.dev/). It hosts the 27B AutoThink model with the
-same request format (`POST /v1/decisions`), free and without usage limits, and needs only a Bamboo API key.
+To try StartLux-Decision without a GPU, sign in to the [StartLux API portal](https://decision.startlux.com/portal/login) for free, unlimited use.
 
 On NVIDIA GPUs, [StartLux-Prism](https://github.com/StartLuxLabs/StartLux-Prism) is our inference engine written for
 these models. It serves v1 and v1.1 AutoThink (4B, 9B and 27B) straight from the released GGUF files, behind the same
