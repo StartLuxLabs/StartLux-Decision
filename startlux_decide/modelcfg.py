@@ -4,6 +4,7 @@ A StartLux-Decision folder holds the weights, the tokenizer, ``config.json`` and
 
 * ``temperature_by_type``: read-out temperature per question type (choice, noul, score), fitted on held-out data;
 * ``letter_token_ids``: the token ids of A to Z (checked against the tokenizer);
+* ``letter_bias`` (optional): 26 additive logit biases, in A to Z order, applied before the read-out temperature;
 * ``max_options_per_pass``: 26, one letter per option;
 * ``wide_choice``: {group, keep, residual} for choice lists over 26 options;
 * ``prompt_attention``: "bidirectional" in Instant folders (their ``config.json`` carries the same value under
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import math
 import os
 from dataclasses import dataclass, field, fields
 from typing import Any, Mapping
@@ -147,6 +149,7 @@ class ModelFolder:
     vision: bool = False                # config.json has a vision tower: images can be part of the evidence
     image_factor: int = 32              # pixels per image token side (patch size x spatial merge size)
     native_context: int | None = None   # max_position_embeddings
+    letter_bias: tuple[float, ...] = ()  # optional trained A-to-Z read-out offsets
 
     @property
     def kind(self) -> str:
@@ -219,6 +222,10 @@ def load_model_folder(path: str) -> ModelFolder:
     if letters is not None and (not isinstance(letters, list) or len(letters) != MAX_OPTIONS
                                 or not all(isinstance(t, int) for t in letters)):
         raise ValueError(f"{cfg_path}: letter_token_ids must be a list of {MAX_OPTIONS} token ids")
+    bias = cfg.get("letter_bias", [0.0] * MAX_OPTIONS)
+    if (not isinstance(bias, list) or len(bias) != MAX_OPTIONS
+            or not all(_is_number(v) and math.isfinite(v) for v in bias)):
+        raise ValueError(f"{cfg_path}: letter_bias must be a list of {MAX_OPTIONS} finite numbers (A to Z)")
     wide = cfg.get("wide_choice") or {}
     group, keep, residual = wide.get("group", 25), wide.get("keep", 3), wide.get("residual", 1e-3)
     if not (isinstance(group, int) and 2 <= group <= MAX_OPTIONS and isinstance(keep, int) and 1 <= keep <= group
@@ -248,7 +255,8 @@ def load_model_folder(path: str) -> ModelFolder:
     return ModelFolder(path=path, prompt_attention=mode, temperature_by_type={k: float(v) for k, v in temps.items()},
                        letter_token_ids=tuple(letters) if letters else None, wide_group=group, wide_keep=keep,
                        wide_residual=float(residual), auto_think=auto, release_date=released, format=fmt, v1=v1,
-                       vision=vision, image_factor=factor, native_context=native_context(model_config))
+                       vision=vision, image_factor=factor, native_context=native_context(model_config),
+                       letter_bias=tuple(float(v) for v in bias) if any(bias) else ())
 
 
 def load_tokenizer(path: str):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import random
 import string
 import time
@@ -165,6 +166,39 @@ class ErrorsAndConcurrencyTest(unittest.TestCase):
         t0 = time.perf_counter()
         run(d.decide("x", {f"q{i}": QUESTIONS["urgent"] for i in range(10)}, Controls(think_mode="never")))
         self.assertLess(time.perf_counter() - t0, 1.0)                  # ten 0.2 s read-outs at once
+
+
+class LetterBiasTest(unittest.TestCase):
+    def test_bias_precedes_temperature_for_all_question_types(self):
+        class EqualLogits(FakeBackend):
+            async def readout(self, prompt, letter_ids):
+                return [0.0] * len(letter_ids)
+
+        folder = replace(AUTO, temperature_by_type={t: 2.0 for t in ("choice", "noul", "score")},
+                         letter_bias=(0.0, 2 * math.log(2), 2 * math.log(4)) + (0.0,) * 23)
+        out = run(Decider(folder, EqualLogits()).decide("x", QUESTIONS, Controls(think_mode="never")))
+        self.assertAlmostEqual(out.answers["team"]["probabilities"]["billing"], 1 / 3)
+        self.assertAlmostEqual(out.answers["team"]["probabilities"]["shipping"], 2 / 3)
+        self.assertAlmostEqual(out.answers["urgent"]["noul"], 1 / 3)
+        for i, expected in enumerate((1 / 7, 2 / 7, 4 / 7)):
+            self.assertAlmostEqual(out.answers["severity"]["probabilities"][str(i)], expected)
+
+    def test_bias_is_used_by_the_autothink_gate_and_second_readout(self):
+        class EqualLogits(FakeBackend):
+            async def readout(self, prompt, letter_ids):
+                return [0.0] * len(letter_ids)
+
+        folder = replace(AUTO, temperature_by_type={"choice": 1.0},
+                         letter_bias=(0.0, math.log(99)) + (0.0,) * 24)
+        backend = EqualLogits(script=closing)
+        decider = Decider(folder, backend)
+        question = {"q": QUESTIONS["team"]}
+        automatic = run(decider.decide("x", question, Controls(think_mode="auto", details=True)))
+        self.assertFalse(automatic.answers["q"]["details"]["thought"]["used"])
+        forced = run(decider.decide("x", question, Controls(think_mode="always", details=True)))
+        self.assertTrue(forced.answers["q"]["details"]["thought"]["used"])
+        for stage in ("first_pass", "after_thought"):
+            self.assertAlmostEqual(forced.answers["q"]["details"][stage]["probabilities"]["shipping"], 0.99)
 
 
 if __name__ == "__main__":

@@ -206,6 +206,7 @@ A model folder holds the weights, the tokenizer, `config.json` and `decision_con
 | `decision_config.json` key | meaning |
 |---|---|
 | `temperature_by_type` | read-out temperature per question type (`choice`, `noul`, `score`; a missing type uses 1.0) |
+| `letter_bias` | optional 26 finite numbers in A–Z order, added to the corresponding letter log-probabilities before applying the read-out temperature; absent or all zeros preserves the original read-out |
 | `letter_token_ids` | token ids of A to Z, checked against the tokenizer |
 | `max_options_per_pass` | 26 (anything else is refused) |
 | `wide_choice` | `{"group": 25, "keep": 3, "residual": 0.001}`: the knock-out of choice lists over 26 options |

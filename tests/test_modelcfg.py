@@ -41,6 +41,16 @@ class FolderTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not think"):
             load_model_folder(self.folder("instant", {"auto_think": {"gate": 0.5}}))
 
+    def test_letter_bias(self):
+        self.assertEqual(load_model_folder(self.folder()).letter_bias, ())
+        self.assertEqual(load_model_folder(self.folder(extra={"letter_bias": [0] * 26})).letter_bias, ())
+        bias = [i / 10 for i in range(26)]
+        self.assertEqual(load_model_folder(self.folder(extra={"letter_bias": bias})).letter_bias, tuple(bias))
+        for bad in (None, {}, "0", [], [0] * 25, [0] * 27, [True] * 26, ["0"] * 26,
+                    [float("nan")] * 26, [float("inf")] * 26):
+            with self.subTest(bias=bad), self.assertRaisesRegex(ValueError, "letter_bias"):
+                load_model_folder(self.folder(extra={"letter_bias": bad}))
+
     def test_auto_think_block(self):
         f = load_model_folder(self.folder(extra={"auto_think": {
             "think_mode": "plain", "gate": 0.8, "mix": 0.5, "budget": 2048, "prefix": "", "tail_chars": 0,
