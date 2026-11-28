@@ -64,7 +64,8 @@ Long inputs:
   good choice on 80 GB GPUs); a longer prompt gets a 422 with the engine's reason.
 - AutoThink and v1 folders read a long state once per request: the package reads the beginning that the questions
   share into vLLM's prefix cache, sends every question of the request to that server, and each question then reads
-  only its own part. A thought re-reads nothing either.
+  only its own part. A thought reads only its own part too with `serve --first-read thinking` (docs/api.md); with
+  the default `plain`, the first thought of a request reads the whole state again.
 - Instant folders read every prompt whole, in one step, because their prompt attention is bidirectional: a request
   with n questions reads its state n times, and one step must hold a whole prompt. On vLLM 0.31 that step crashed the
   server for a 256,000-token prompt (4B) and a 196,000-token prompt (27B), which is why Instant servers stop at

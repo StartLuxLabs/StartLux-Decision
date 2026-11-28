@@ -12,6 +12,10 @@
     return_thought   bool: also return the thought text (implies return_details)
     thought_generation  "auto" | "stream" | "chunked": how a thought is generated (pipeline.py); "auto" streams on
                      engines that stream thoughts safely (vLLM 0.31 or later), "stream" is refused on the others
+    first_read       "plain" | "thinking": the prompt of the one-pass read-outs of a request that may think; "plain" is
+                     the trained one-pass prompt, "thinking" the thinking prompt with an empty thought, whose beginning
+                     a thought reuses from an engine's prefix cache (prompt.empty_thought_prompt). A think_mode "never"
+                     request reads "plain"
 
 A missing field takes the server default. Instant models never think: a request that asks them to (think_mode
 "auto" or "always") is refused.
@@ -25,6 +29,7 @@ from typing import Any
 from .modelcfg import think_mode
 
 THOUGHT_GENERATIONS = ("auto", "stream", "chunked")
+FIRST_READS = ("plain", "thinking")
 STREAM_REFUSED = ("this engine does not stream thoughts (vLLM 0.31 or later does): leave thought_generation out or "
                   "set it to \"chunked\"")
 
@@ -49,6 +54,7 @@ class Controls:
     thought_generation: str = "auto"
     allow_none: bool = False
     none_check: bool = False
+    first_read: str = "plain"
 
 
 def _fraction(value: Any, name: str) -> float:
@@ -103,4 +109,9 @@ def parse_controls(body: dict, defaults: Controls, max_budget: int, can_think: b
         if g == "stream" and not can_stream:
             raise RequestError(STREAM_REFUSED, ("body", "thought_generation"))
         out = replace(out, thought_generation=g)
+    if body.get("first_read") is not None:
+        f = body["first_read"]
+        if f not in FIRST_READS:
+            raise RequestError(f"first_read must be one of {', '.join(FIRST_READS)}, not {f!r}", ("body", "first_read"))
+        out = replace(out, first_read=f)
     return out

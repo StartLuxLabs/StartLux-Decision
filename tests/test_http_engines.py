@@ -20,7 +20,7 @@ from startlux_decide.readout import probabilities
 
 from . import reference_impl as ref
 from .fake_vllm import FakeVLLM
-from .test_golden import MODES, folder_for, random_question, random_settings, random_state
+from .test_golden import MODES, folder_for, package_room, random_question, random_settings, random_state
 
 try:
     import aiohttp
@@ -123,6 +123,7 @@ class VLLMOverHTTPTest(unittest.IsolatedAsyncioTestCase):
                                 max_len=s.max_len, no_waves=False, wave_max=128, wave_gather=0.01)
             proxy = ref.Proxy(a, tok, s.temp, s.tthink, [r0.url + "/v1/completions", r1.url + "/v1/completions"],
                               lambda url, body: reference_complete(session, url, body))
+            package_room(proxy, tok)
             expected = await proxy.handle(state, questions)
             for wave in proxy.waves.values():           # the release proxy never stopped its wave workers
                 wave.task.cancel()

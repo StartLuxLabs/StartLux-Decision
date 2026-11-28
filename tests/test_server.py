@@ -89,8 +89,8 @@ class AnswerTest(ServerTest):
         self.assertRegex(models[0]["release_date"], r"^\d{4}-\d\d-\d\d$")
         r = await self.client.get("/health")
         h = await r.json()
-        self.assertEqual((h["status"], h["kind"], h["defaults"]["think_mode"], h["defaults"]["gate"]),
-                         ("ok", self.kind, "auto", 0.6))
+        self.assertEqual((h["status"], h["kind"], h["defaults"]["think_mode"], h["defaults"]["gate"],
+                          h["defaults"]["first_read"]), ("ok", self.kind, "auto", 0.6, "plain"))
         r = await self.client.get("/nope")
         self.assertEqual(r.status, 404)
         self.assertEqual((await r.json())["detail"][0]["type"], "http_error")
